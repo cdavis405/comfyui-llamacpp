@@ -1,0 +1,4 @@
+# All already present in a standard ComfyUI install; listed for completeness.
+requests
+pillow
+numpy
