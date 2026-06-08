@@ -45,6 +45,9 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8080
 # Default model + sampling mirror ~/.local/bin/vision-llm.sh.
 DEFAULT_MODEL = "unsloth/gemma-4-31B-it-GGUF:UD-Q6_K_XL"
+# MTP (multi-token prediction) speculative-decoding draft model. Empty = disabled.
+# Mirrors --model-draft in ~/.local/bin/vision-llm.sh.
+DEFAULT_MODEL_DRAFT = "~/Models/gemma-4-31B-it-MTP-Q8_0.gguf"
 IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".tif", ".tiff")
 
 
@@ -150,6 +153,18 @@ def _build_launch_cmd(binary, cfg):
         cmd += ["--cache-type-k", "q8_0", "--cache-type-v", "q8_0"]
 
     cmd += ["-np", "1"]
+
+    # MTP speculative decoding: only when a draft model is configured.
+    # Mirrors --model-draft / --spec-type draft-mtp / --spec-draft-n-max.
+    model_draft = str(cfg.get("model_draft", "")).strip()
+    if model_draft:
+        cmd += ["--model-draft", os.path.expanduser(model_draft)]
+        cmd += ["--spec-type", str(cfg.get("spec_type", "draft-mtp"))]
+        cmd += ["--spec-draft-n-max", str(cfg["spec_draft_n_max"])]
+
+    # Skip the warmup pass for faster startup.
+    if cfg.get("no_warmup"):
+        cmd += ["--no-warmup"]
 
     cmd += ["--jinja"] if cfg["jinja"] else ["--no-jinja"]
 
@@ -321,7 +336,7 @@ class LlamaCppChat:
                 "image2": ("IMAGE",),
 
                 # ---- sampling (sent per-request) ----
-                "temperature": ("FLOAT", {"default": 1.5, "min": 0.0, "max": 4.0, "step": 0.05}),
+                "temperature": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 4.0, "step": 0.05}),
                 "top_k": ("INT", {"default": 40, "min": 0, "max": 1000}),
                 "top_p": ("FLOAT", {"default": 0.95, "min": 0.0, "max": 1.0, "step": 0.01}),
                 "min_p": ("FLOAT", {"default": 0.05, "min": 0.0, "max": 1.0, "step": 0.01}),
@@ -338,6 +353,13 @@ class LlamaCppChat:
                 "ubatch_size": ("INT", {"default": 4096, "min": 1, "max": 1_000_000}),
                 "kv_cache_q8": ("BOOLEAN", {"default": True}),
                 "jinja": ("BOOLEAN", {"default": True}),
+
+                # ---- MTP speculative decoding (empty model_draft = disabled) ----
+                "model_draft": ("STRING", {"default": DEFAULT_MODEL_DRAFT}),
+                "spec_type": ("STRING", {"default": "draft-mtp"}),
+                "spec_draft_n_max": ("INT", {"default": 4, "min": 1, "max": 64}),
+                "no_warmup": ("BOOLEAN", {"default": True}),
+
                 "ngl": ("STRING", {"default": "auto"}),
                 "host": ("STRING", {"default": DEFAULT_HOST}),
                 "port": ("INT", {"default": DEFAULT_PORT, "min": 1, "max": 65535}),
@@ -356,11 +378,13 @@ class LlamaCppChat:
 
     def generate(self, model, system_prompt, prompt,
                  image1=None, image2=None,
-                 temperature=1.5, top_k=40, top_p=0.95, min_p=0.05,
+                 temperature=1.0, top_k=40, top_p=0.95, min_p=0.05,
                  presence_penalty=0.0, repeat_penalty=1.0,
                  max_tokens=1024, seed=0,
                  ctx=5000, image_max_tokens=4480, image_min_tokens=1120,
                  batch_size=4096, ubatch_size=4096, kv_cache_q8=True, jinja=True,
+                 model_draft=DEFAULT_MODEL_DRAFT, spec_type="draft-mtp",
+                 spec_draft_n_max=4, no_warmup=True,
                  ngl="auto", host=DEFAULT_HOST, port=DEFAULT_PORT,
                  startup_timeout=900,
                  free_comfy_vram=True, unload_after=False):
@@ -382,6 +406,10 @@ class LlamaCppChat:
             "image_min_tokens": int(image_min_tokens),
             "kv_cache_q8": bool(kv_cache_q8),
             "jinja": bool(jinja),
+            "model_draft": model_draft,
+            "spec_type": spec_type,
+            "spec_draft_n_max": int(spec_draft_n_max),
+            "no_warmup": bool(no_warmup),
         }
         base_url = ensure_server(launch_cfg, startup_timeout=int(startup_timeout))
 

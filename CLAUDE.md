@@ -29,6 +29,12 @@ already-running one.
   relaunches.
 - `flash-attn` is hard-wired `on` (required for q8 KV cache). `kv_cache_q8`
   toggles `--cache-type-k/v q8_0` (on) vs f16 (off).
+- **MTP speculative decoding** (llama.cpp PR #23398): `model_draft` (launch flag)
+  points at the MTP draft GGUF; when non-empty it adds `--model-draft`,
+  `--spec-type <spec_type>` (default `draft-mtp`), and `--spec-draft-n-max`
+  (default 4). Empty `model_draft` = MTP off. `no_warmup` adds `--no-warmup`
+  (faster startup), default on. All are launch flags → changing them relaunches.
+  Mirrors the MTP block in `~/.local/bin/vision-llm.sh`.
 - Two optional image inputs (`image1`, `image2`); each may be a batch — all
   frames are attached to the one user message.
 
